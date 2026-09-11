@@ -1,0 +1,75 @@
+@import "tailwindcss";
+
+@theme {
+  --color-bg: #f4efe6;
+  --color-surface: #fffdf8;
+  --color-fg: #1a1916;
+  --color-muted: #6b665c;
+  --color-primary: #0f6e56;
+  --color-primary-fg: #f4efe6;
+  --color-border: #e4ddd0;
+  --color-danger: #a63d2f;
+  --font-sans: "DM Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Fraunces", ui-serif, Georgia, serif;
+  --radius-lg: 0.75rem;
+  --radius-xl: 1rem;
+  --radius-2xl: 1.25rem;
+  --shadow-border:
+    0px 0px 0px 1px rgba(26, 25, 22, 0.06),
+    0px 1px 2px -1px rgba(26, 25, 22, 0.06),
+    0px 2px 4px 0px rgba(26, 25, 22, 0.04);
+  --shadow-border-hover:
+    0px 0px 0px 1px rgba(26, 25, 22, 0.12),
+    0px 1px 2px -1px rgba(26, 25, 22, 0.08),
+    0px 2px 4px 0px rgba(26, 25, 22, 0.06);
+}
+
+@layer base {
+  html {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+  h1,
+  h2,
+  h3 {
+    text-wrap: balance;
+  }
+  p {
+    text-wrap: pretty;
+  }
+  button:not(:disabled),
+  [role="button"]:not(:disabled) {
+    cursor: pointer;
+  }
+  body {
+    background-color: var(--color-bg);
+    color: var(--color-fg);
+    font-family: var(--font-sans);
+  }
+}
+
+@media print {
+  @page {
+    size: A4;
+    margin: 12mm;
+  }
+  body {
+    background: white !important;
+  }
+  .app-chrome {
+    display: none !important;
+  }
+  .invoice-sheet {
+    display: block !important;
+    box-shadow: none !important;
+    max-width: none !important;
+    padding: 0 !important;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    transition: none !important;
+    animation: none !important;
+  }
+}
