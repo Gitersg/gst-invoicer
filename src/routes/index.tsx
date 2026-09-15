@@ -1,26 +1,17 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { CircleHelp, FilePlus, Printer, RotateCcw, Trash2, X } from "lucide-react";
-import { useMemo, useState } from "react";
-import { Button } from "@/components/ui/button";
-import { AmountInput, Field, Input, Select, Textarea } from "@/components/field";
+import { CircleHelp, FilePlus, Printer, RotateCcw, X } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { CompanyStudio } from "@/components/company-studio";
+import { InvoiceEditor } from "@/components/invoice-editor";
 import { InvoiceSheet } from "@/components/invoice-sheet";
-import {
-  DOC_TITLES,
-  GST_RATES,
-  INDIAN_STATES,
-  gstinHint,
-  inferGstMode,
-  invoiceTotals,
-  stateFromGstin,
-} from "@/lib/gst";
+import { Button } from "@/components/ui/button";
+import { invoiceTotals } from "@/lib/gst";
 import { formatInr } from "@/lib/inr";
 import { useBill } from "@/lib/store";
-import type { Invoice, InvoiceStatus } from "@/lib/types";
-import { cn, uid } from "@/lib/utils";
+import type { InvoiceStatus } from "@/lib/types";
+import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/")({ ssr: false, component: Home });
-
-const STATUS: InvoiceStatus[] = ["draft", "unpaid", "paid"];
 
 function Home() {
   const [tab, setTab] = useState<"invoice" | "preview" | "business">("invoice");
@@ -31,7 +22,9 @@ function Home() {
   const invoices = useBill((s) => s.invoices);
   const selectedId = useBill((s) => s.selectedId);
   const invoice = invoices.find((i) => i.id === selectedId) ?? invoices[0];
-  const client = clients.find((c) => c.id === invoice?.clientId);
+  const billedClients = clients.filter((c) =>
+    (invoice?.clientIds?.length ? invoice.clientIds : [invoice?.clientId]).includes(c.id),
+  );
 
   const stats = useMemo(() => {
     let paid = 0;
@@ -43,6 +36,25 @@ function Home() {
     }
     return { paid, unpaid, count: invoices.length };
   }, [invoices]);
+
+  useEffect(() => {
+    const base = "GST Invoicer";
+    function beforePrint() {
+      const name = business.name?.trim() || "Invoice";
+      const num = invoice?.number?.trim() || "";
+      document.title = num ? `${name} ${num}` : name;
+    }
+    function afterPrint() {
+      document.title = base;
+    }
+    window.addEventListener("beforeprint", beforePrint);
+    window.addEventListener("afterprint", afterPrint);
+    return () => {
+      window.removeEventListener("beforeprint", beforePrint);
+      window.removeEventListener("afterprint", afterPrint);
+      document.title = base;
+    };
+  }, [business.name, invoice?.number]);
 
   function savePdf() {
     setTab("preview");
@@ -83,7 +95,10 @@ function Home() {
           </section>
           <nav className="space-y-1">
             {invoices.map((inv) => {
-              const c = clients.find((x) => x.id === inv.clientId);
+              const names = clients
+                .filter((x) => (inv.clientIds?.length ? inv.clientIds : [inv.clientId]).includes(x.id))
+                .map((x) => x.name)
+                .join(", ");
               const total = invoiceTotals(inv).grand;
               const active = inv.id === invoice?.id;
               return (
@@ -103,7 +118,7 @@ function Home() {
                     <span className="font-medium tabular-nums">{inv.number}</span>
                     <StatusPill status={inv.status} />
                   </span>
-                  <span className="mt-1 truncate text-sm text-muted">{c?.name ?? "No client"}</span>
+                  <span className="mt-1 truncate text-sm text-muted">{names || "No client"}</span>
                   <span className="tabular-nums text-sm">{formatInr(total)}</span>
                 </button>
               );
@@ -141,8 +156,9 @@ function Home() {
           {tab === "preview" && invoice ? (
             <div className="flex flex-col gap-3 rounded-xl bg-surface px-4 py-4 shadow-[var(--shadow-border)] sm:flex-row sm:items-center">
               <p className="flex-1 text-sm text-pretty">
-                This is only a look at the bill. Click <strong>Print / Save PDF</strong>. A print
-                window opens. In that window choose <strong>Save as PDF</strong>, then Save.
+                This is only a look at the bill. Click <strong>Print / Save PDF</strong>. In the print
+                window choose Destination → <strong>Save as PDF</strong>, and turn off “Headers and
+                footers” so the browser does not stamp the website name.
               </p>
               <Button onClick={() => window.print()}>
                 <Printer className="size-4" />
@@ -152,7 +168,7 @@ function Home() {
           ) : null}
 
           {tab === "invoice" && invoice ? (
-            <Editor
+            <InvoiceEditor
               key={invoice.id}
               invoiceId={invoice.id}
               onDelete={() => useBill.getState().removeInvoice(invoice.id)}
@@ -165,13 +181,13 @@ function Home() {
             </p>
           ) : null}
 
-          {tab === "business" ? <Studio /> : null}
+          {tab === "business" ? <CompanyStudio /> : null}
         </main>
       </div>
 
       {invoice ? (
         <div className={cn("mx-auto max-w-7xl px-4 pb-10 print:block", tab !== "preview" && "hidden")}>
-          <InvoiceSheet invoice={invoice} business={business} client={client} />
+          <InvoiceSheet invoice={invoice} business={business} clients={billedClients} />
         </div>
       ) : null}
     </div>
@@ -188,7 +204,7 @@ function HelpPanel({ onClose }: { onClose: () => void }) {
       >
         <div className="flex items-start justify-between gap-3">
           <h2 id="help-title" className="font-display text-xl">
-            How to use GST Invoicer
+            How to use
           </h2>
           <Button variant="ghost" aria-label="Close help" onClick={onClose}>
             <X className="size-4" />
@@ -196,28 +212,31 @@ function HelpPanel({ onClose }: { onClose: () => void }) {
         </div>
         <ol className="mt-4 list-decimal space-y-3 pl-5 text-sm text-pretty">
           <li>
-            Open <strong>Company</strong>. Replace the demo legal name, GSTIN, PAN, bank, and address
-            with yours. Document title can be Tax Invoice, Bill, Invoice, Bill of Supply, or Proforma.
+            Open <strong>Company</strong>. Fill only what should appear on bills. Blank bank, GSTIN,
+            email, or notes are omitted from the PDF — no empty “A/C” or “IFSC” labels.
           </li>
           <li>
-            Edit or add <strong>clients</strong>. Bistro Forty Two and Northline Apparel are fake sample
-            buyers so the app is not empty on first open.
+            On each invoice, <strong>Print on this bill</strong> lets you hide bank, due date, tax
+            codes, reverse charge, or footer even if the company still has that data.
           </li>
           <li>
-            GST split is automatic from the first two digits of seller vs buyer GSTIN (same state =
-            CGST+SGST, other state = IGST). You can override it on the invoice.
+            Tick several <strong>clients</strong> to make a group bill. GST follows the first client.
           </li>
           <li>
-            <strong>PDF</strong> opens Preview, then the browser print dialog. Choose Destination →
-            Save as PDF. Nothing is uploaded.
+            Line descriptions hold a full paragraph. Tax code (HSN for goods, SAC for services) is
+            optional.
           </li>
           <li>
-            All data stays in this browser only. Reset demo data wipes your edits on this device.
+            Add a percent or rupee discount, an offer note, or a free-gift line. Gifts print as Free
+            and stay out of tax.
+          </li>
+          <li>
+            <strong>PDF:</strong> Preview → Print / Save PDF → Destination: Save as PDF. Uncheck
+            Headers and footers so Chrome does not print the site name.
           </li>
         </ol>
         <p className="mt-4 text-xs text-muted">
-          This helper follows GST invoice maths (Rule 46 style fields). It is not a CA, GSTR-1 filer,
-          or e-invoice portal.
+          GST maths follow Rule 46 style fields. This is not a CA, GSTR-1 filer, or e-invoice portal.
         </p>
       </div>
     </div>
@@ -246,349 +265,5 @@ function StatusPill({ status }: { status: InvoiceStatus }) {
     >
       {label}
     </span>
-  );
-}
-
-function Editor({ invoiceId, onDelete }: { invoiceId: string; onDelete: () => void }) {
-  const invoice = useBill((s) => s.invoices.find((i) => i.id === invoiceId));
-  const clients = useBill((s) => s.clients);
-  const business = useBill((s) => s.business);
-  if (!invoice) return null;
-  const patch = (p: Partial<Invoice>) => useBill.getState().patchInvoice(invoiceId, p);
-
-  return (
-    <div className="space-y-4 rounded-2xl bg-surface p-4 shadow-[var(--shadow-border)] sm:p-6">
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <Field label="Number">
-          <Input value={invoice.number} onChange={(e) => patch({ number: e.target.value })} />
-        </Field>
-        <Field label="Date">
-          <Input type="date" value={invoice.date} onChange={(e) => patch({ date: e.target.value })} />
-        </Field>
-        <Field label="Due">
-          <Input type="date" value={invoice.dueDate} onChange={(e) => patch({ dueDate: e.target.value })} />
-        </Field>
-        <Field label="Status">
-          <Select
-            value={invoice.status}
-            onChange={(e) => useBill.getState().setStatus(invoiceId, e.target.value as InvoiceStatus)}
-          >
-            {STATUS.map((s) => (
-              <option key={s} value={s}>
-                {s}
-              </option>
-            ))}
-          </Select>
-        </Field>
-        <Field label="Client" className="sm:col-span-2">
-          <Select
-            value={invoice.clientId}
-            onChange={(e) => {
-              const c = clients.find((x) => x.id === e.target.value);
-              patch({
-                clientId: e.target.value,
-                gstMode: c ? inferGstMode(business, c) : "intra",
-                placeOfSupply: c?.state ?? "",
-              });
-            }}
-          >
-            {clients.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name}
-              </option>
-            ))}
-          </Select>
-        </Field>
-        <Field label="Place of supply">
-          <Select
-            value={invoice.placeOfSupply || ""}
-            onChange={(e) => patch({ placeOfSupply: e.target.value })}
-          >
-            <option value="">Select</option>
-            {INDIAN_STATES.map((s) => (
-              <option key={s} value={s}>
-                {s}
-              </option>
-            ))}
-          </Select>
-        </Field>
-        <Field label="GST split">
-          <Select
-            value={invoice.gstMode}
-            onChange={(e) => patch({ gstMode: e.target.value as "intra" | "inter" })}
-          >
-            <option value="intra">Same state — CGST + SGST</option>
-            <option value="inter">Other state — IGST</option>
-          </Select>
-        </Field>
-        <Field label="Reverse charge">
-          <Select
-            value={invoice.reverseCharge ? "yes" : "no"}
-            onChange={(e) => patch({ reverseCharge: e.target.value === "yes" })}
-          >
-            <option value="no">No</option>
-            <option value="yes">Yes</option>
-          </Select>
-        </Field>
-      </div>
-
-      <div className="space-y-3">
-        {invoice.items.map((item, idx) => (
-          <div key={item.id} className="space-y-2 rounded-xl bg-bg p-3">
-            <div className="flex gap-2">
-              <Field label={idx === 0 ? "Work" : ""} className="min-w-0 flex-1">
-                <Input
-                  placeholder="What did you deliver?"
-                  value={item.description}
-                  onChange={(e) =>
-                    useBill.getState().setItem(invoiceId, { ...item, description: e.target.value })
-                  }
-                />
-              </Field>
-              <div className="flex shrink-0 items-end">
-                <Button
-                  variant="ghost"
-                  className="w-11 px-0 text-muted"
-                  aria-label="Remove line"
-                  disabled={invoice.items.length < 2}
-                  onClick={() => useBill.getState().removeItem(invoiceId, item.id)}
-                >
-                  <Trash2 className="size-4" />
-                </Button>
-              </div>
-            </div>
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-              <Field label={idx === 0 ? "HSN/SAC" : ""}>
-                <Input
-                  value={item.hsn}
-                  onChange={(e) =>
-                    useBill.getState().setItem(invoiceId, { ...item, hsn: e.target.value })
-                  }
-                />
-              </Field>
-              <Field label={idx === 0 ? "Qty" : ""}>
-                <AmountInput
-                  value={item.qty}
-                  placeholder="1"
-                  onCommit={(n) => useBill.getState().setItem(invoiceId, { ...item, qty: n || 1 })}
-                />
-              </Field>
-              <Field label={idx === 0 ? "Rate" : ""}>
-                <AmountInput
-                  value={item.rate}
-                  placeholder="0"
-                  onCommit={(n) => useBill.getState().setItem(invoiceId, { ...item, rate: n })}
-                />
-              </Field>
-              <Field label={idx === 0 ? "GST %" : ""}>
-                <Select
-                  value={String(item.gstRate)}
-                  onChange={(e) =>
-                    useBill.getState().setItem(invoiceId, { ...item, gstRate: Number(e.target.value) })
-                  }
-                >
-                  {GST_RATES.map((r) => (
-                    <option key={r} value={r}>
-                      {r}%
-                    </option>
-                  ))}
-                </Select>
-              </Field>
-            </div>
-          </div>
-        ))}
-        <Button variant="outline" onClick={() => useBill.getState().addItem(invoiceId)}>
-          Add line
-        </Button>
-      </div>
-
-      <Field label="Notes">
-        <Textarea value={invoice.notes} onChange={(e) => patch({ notes: e.target.value.slice(0, 2000) })} />
-      </Field>
-
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <p className="font-display text-2xl tabular-nums">{formatInr(invoiceTotals(invoice).grand)}</p>
-        <Button variant="danger" onClick={onDelete}>
-          <Trash2 className="size-4" />
-          Delete
-        </Button>
-      </div>
-    </div>
-  );
-}
-
-function GstHint({ value }: { value: string }) {
-  const hint = gstinHint(value);
-  if (!hint) return null;
-  return <p className="text-xs text-danger">{hint}</p>;
-}
-
-function Studio() {
-  const business = useBill((s) => s.business);
-  const clients = useBill((s) => s.clients);
-  const patch = (p: Partial<typeof business>) => useBill.getState().patchBusiness(p);
-
-  return (
-    <div className="space-y-6">
-      <p className="rounded-xl bg-surface px-4 py-3 text-sm text-muted shadow-[var(--shadow-border)]">
-        Demo names (Aarohi Studio, Bistro Forty Two, Northline Apparel) are sample only. Change them
-        here — they print on every bill.
-      </p>
-      <section className="space-y-4 rounded-2xl bg-surface p-4 shadow-[var(--shadow-border)] sm:p-6">
-        <h2 className="font-display text-xl">Your company</h2>
-        <div className="grid gap-4 sm:grid-cols-2">
-          <Field label="Legal name">
-            <Input value={business.name} onChange={(e) => patch({ name: e.target.value })} />
-          </Field>
-          <Field label="Document title">
-            <Select
-              value={business.documentTitle}
-              onChange={(e) => patch({ documentTitle: e.target.value })}
-            >
-              {DOC_TITLES.map((t) => (
-                <option key={t} value={t}>
-                  {t}
-                </option>
-              ))}
-            </Select>
-          </Field>
-          <Field label="Invoice prefix">
-            <Input
-              value={business.numberPrefix}
-              onChange={(e) => patch({ numberPrefix: e.target.value.toUpperCase().slice(0, 8) })}
-            />
-          </Field>
-          <Field label="GSTIN">
-            <Input
-              value={business.gstin}
-              onChange={(e) => {
-                const gstin = e.target.value.toUpperCase();
-                const state = stateFromGstin(gstin);
-                patch(state ? { gstin, state } : { gstin });
-              }}
-            />
-            <GstHint value={business.gstin} />
-          </Field>
-          <Field label="PAN">
-            <Input value={business.pan} onChange={(e) => patch({ pan: e.target.value.toUpperCase() })} />
-          </Field>
-          <Field label="State">
-            <Select value={business.state} onChange={(e) => patch({ state: e.target.value })}>
-              {INDIAN_STATES.map((s) => (
-                <option key={s} value={s}>
-                  {s}
-                </option>
-              ))}
-            </Select>
-          </Field>
-          <Field label="Address" className="sm:col-span-2">
-            <Textarea value={business.address} onChange={(e) => patch({ address: e.target.value })} />
-          </Field>
-          <Field label="Email">
-            <Input type="email" value={business.email} onChange={(e) => patch({ email: e.target.value })} />
-          </Field>
-          <Field label="Phone">
-            <Input value={business.phone} onChange={(e) => patch({ phone: e.target.value })} />
-          </Field>
-          <Field label="Bank">
-            <Input value={business.bankName} onChange={(e) => patch({ bankName: e.target.value })} />
-          </Field>
-          <Field label="Account">
-            <Input value={business.accountNumber} onChange={(e) => patch({ accountNumber: e.target.value })} />
-          </Field>
-          <Field label="IFSC">
-            <Input value={business.ifsc} onChange={(e) => patch({ ifsc: e.target.value.toUpperCase() })} />
-          </Field>
-          <Field label="Footer line" className="sm:col-span-2">
-            <Input
-              value={business.footerNote}
-              onChange={(e) => patch({ footerNote: e.target.value.slice(0, 240) })}
-            />
-          </Field>
-        </div>
-      </section>
-
-      <section className="space-y-4 rounded-2xl bg-surface p-4 shadow-[var(--shadow-border)] sm:p-6">
-        <div className="flex items-center justify-between gap-3">
-          <h2 className="font-display text-xl">Clients</h2>
-          <Button
-            variant="outline"
-            onClick={() =>
-              useBill.getState().upsertClient({
-                id: uid("cl"),
-                name: "New client",
-                gstin: "",
-                address: "",
-                state: business.state,
-                email: "",
-                phone: "",
-              })
-            }
-          >
-            Add client
-          </Button>
-        </div>
-        <div className="space-y-6">
-          {clients.map((c) => (
-            <div key={c.id} className="grid gap-3 border-t border-border pt-4 sm:grid-cols-2">
-              <Field label="Name">
-                <Input
-                  value={c.name}
-                  onChange={(e) => useBill.getState().upsertClient({ ...c, name: e.target.value })}
-                />
-              </Field>
-              <Field label="GSTIN">
-                <Input
-                  value={c.gstin}
-                  onChange={(e) => {
-                    const gstin = e.target.value.toUpperCase();
-                    const state = stateFromGstin(gstin);
-                    useBill.getState().upsertClient({ ...c, gstin, ...(state ? { state } : {}) });
-                  }}
-                />
-                <GstHint value={c.gstin} />
-              </Field>
-              <Field label="State">
-                <Select
-                  value={c.state}
-                  onChange={(e) => useBill.getState().upsertClient({ ...c, state: e.target.value })}
-                >
-                  {INDIAN_STATES.map((s) => (
-                    <option key={s} value={s}>
-                      {s}
-                    </option>
-                  ))}
-                </Select>
-              </Field>
-              <Field label="Phone">
-                <Input
-                  value={c.phone}
-                  onChange={(e) => useBill.getState().upsertClient({ ...c, phone: e.target.value })}
-                />
-              </Field>
-              <Field label="Email">
-                <Input
-                  value={c.email}
-                  onChange={(e) => useBill.getState().upsertClient({ ...c, email: e.target.value })}
-                />
-              </Field>
-              <Field label="Address" className="sm:col-span-2">
-                <Textarea
-                  value={c.address}
-                  onChange={(e) => useBill.getState().upsertClient({ ...c, address: e.target.value })}
-                />
-              </Field>
-              <Button
-                variant="ghost"
-                className="justify-self-start text-danger"
-                onClick={() => useBill.getState().removeClient(c.id)}
-              >
-                Remove client
-              </Button>
-            </div>
-          ))}
-        </div>
-      </section>
-    </div>
   );
 }

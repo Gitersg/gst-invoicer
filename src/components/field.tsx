@@ -14,10 +14,12 @@ const box =
 
 export function Field({
   label,
+  hint,
   children,
   className,
 }: {
   label: string;
+  hint?: string;
   children: ReactNode;
   className?: string;
 }) {
@@ -29,6 +31,7 @@ export function Field({
         <span className="hidden text-xs sm:block sm:invisible sm:h-0">.</span>
       )}
       {children}
+      {hint ? <span className="block text-xs leading-snug text-muted">{hint}</span> : null}
     </label>
   );
 }
@@ -38,7 +41,7 @@ export function Input(props: InputHTMLAttributes<HTMLInputElement>) {
 }
 
 export function Textarea(props: TextareaHTMLAttributes<HTMLTextAreaElement>) {
-  return <textarea {...props} className={cn(box, "h-24 py-2", props.className)} />;
+  return <textarea {...props} className={cn(box, "h-28 py-2 leading-relaxed", props.className)} />;
 }
 
 export function Select(props: SelectHTMLAttributes<HTMLSelectElement>) {
@@ -86,8 +89,7 @@ export function AmountInput({
       onChange={(e) => {
         const v = e.target.value.replace(/[^\d.]/g, "");
         const first = v.indexOf(".");
-        const next =
-          first === -1 ? v : v.slice(0, first + 1) + v.slice(first + 1).replace(/\./g, "");
+        const next = first === -1 ? v : v.slice(0, first + 1) + v.slice(first + 1).replace(/\./g, "");
         setText(next);
       }}
       onBlur={() => {
