@@ -17,7 +17,6 @@ export function formatInr(n: number): string {
   }).format(round2(n));
 }
 
-
 const ONES = [
   "",
   "One",

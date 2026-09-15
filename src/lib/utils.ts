@@ -8,3 +8,7 @@ export function cn(...inputs: ClassValue[]) {
 export function uid(prefix = "id"): string {
   return `${prefix}-${Math.random().toString(36).slice(2, 9)}`;
 }
+
+export function filled(value: string | undefined | null): boolean {
+  return Boolean(value && value.trim());
+}

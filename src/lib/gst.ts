@@ -48,20 +48,38 @@ export const STATE_BY_CODE: Record<string, string> = {
 
 export const INDIAN_STATES = [...new Set(Object.values(STATE_BY_CODE))].sort();
 
-export function lineTaxable(item: LineItem): number {
+export function lineGross(item: LineItem): number {
+  if (item.kind === "gift") return 0;
   return money((Number(item.qty) || 0) * (Number(item.rate) || 0));
 }
 
-export function lineGst(item: LineItem): number {
-  const rate = GST_RATES.includes(item.gstRate as (typeof GST_RATES)[number])
-    ? item.gstRate
-    : 0;
-  return money(lineTaxable(item) * (rate / 100));
+export function lineTaxable(item: LineItem): number {
+  if (item.kind === "gift") return 0;
+  const gross = lineGross(item);
+  const cut = money(item.lineDiscount || 0);
+  return money(Math.max(0, gross - cut));
 }
 
-export function lineBreakup(item: LineItem, mode: GstMode) {
-  const taxable = lineTaxable(item);
-  const gst = lineGst(item);
+export function lineGstOn(taxable: number, gstRate: number): number {
+  const rate = GST_RATES.includes(gstRate as (typeof GST_RATES)[number]) ? gstRate : 0;
+  return money(taxable * (rate / 100));
+}
+
+export function lineGst(item: LineItem): number {
+  return lineGstOn(lineTaxable(item), item.gstRate);
+}
+
+export function invoiceDiscountAmount(inv: Invoice, subtotal: number): number {
+  if (!inv.discountKind || inv.discountKind === "none" || subtotal <= 0) return 0;
+  if (inv.discountKind === "percent") {
+    return money(Math.min(subtotal, subtotal * (Number(inv.discountValue) || 0) / 100));
+  }
+  return money(Math.min(subtotal, Number(inv.discountValue) || 0));
+}
+
+export function lineBreakup(item: LineItem, mode: GstMode, netTaxable?: number) {
+  const taxable = netTaxable ?? lineTaxable(item);
+  const gst = lineGstOn(taxable, item.gstRate);
   if (mode === "intra") {
     const cgst = round2(gst / 2);
     const sgst = round2(gst - cgst);
@@ -71,14 +89,22 @@ export function lineBreakup(item: LineItem, mode: GstMode) {
 }
 
 export function invoiceTotals(inv: Invoice) {
-  const acc = { taxable: 0, cgst: 0, sgst: 0, igst: 0, gst: 0, grand: 0 };
-  for (const item of inv.items) {
-    const b = lineBreakup(item, inv.gstMode);
+  const grossLines = inv.items.map((item) => lineTaxable(item));
+  const subtotal = round2(grossLines.reduce((s, n) => s + n, 0));
+  const discount = invoiceDiscountAmount(inv, subtotal);
+  const acc = { subtotal, discount, taxable: 0, cgst: 0, sgst: 0, igst: 0, gst: 0, grand: 0 };
+
+  inv.items.forEach((item, i) => {
+    const gross = grossLines[i] ?? 0;
+    const share = subtotal > 0 ? gross / subtotal : 0;
+    const net = money(Math.max(0, gross - money(discount * share)));
+    const b = lineBreakup(item, inv.gstMode, net);
     acc.taxable = round2(acc.taxable + b.taxable);
     acc.cgst = round2(acc.cgst + b.cgst);
     acc.sgst = round2(acc.sgst + b.sgst);
     acc.igst = round2(acc.igst + b.igst);
-  }
+  });
+
   acc.gst = round2(acc.cgst + acc.sgst + acc.igst);
   acc.grand = round2(acc.taxable + acc.gst);
   return acc;
