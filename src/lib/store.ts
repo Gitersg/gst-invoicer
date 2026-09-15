@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { persist } from "zustand/middleware";
+import { persist, createJSONStorage } from "zustand/middleware";
 import { inferGstMode, nextInvoiceNumber } from "./gst";
 import { SEED } from "./seed";
 import type {
@@ -68,6 +68,23 @@ export function normalizeInvoice(inv: Invoice): Invoice {
       kind: it.kind === "gift" ? "gift" : "sale",
       lineDiscount: Number(it.lineDiscount) || 0,
     })),
+  };
+}
+
+function billStorage() {
+  return {
+    getItem: (name: string) => {
+      if (typeof localStorage === "undefined") return null;
+      return localStorage.getItem(name) ?? localStorage.getItem("clearbill-v1");
+    },
+    setItem: (name: string, value: string) => {
+      if (typeof localStorage === "undefined") return;
+      localStorage.setItem(name, value);
+    },
+    removeItem: (name: string) => {
+      if (typeof localStorage === "undefined") return;
+      localStorage.removeItem(name);
+    },
   };
 }
 
@@ -180,6 +197,7 @@ export const useBill = create<BillState & Actions>()(
     }),
     {
       name: "clearbill-v2",
+      storage: createJSONStorage(() => billStorage()),
       merge: (persisted, current) => {
         const p = (persisted ?? {}) as Partial<BillState>;
         return {
